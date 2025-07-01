@@ -1,0 +1,45 @@
+#!/bin/bash
+
+## Declare a key-value array
+declare -A application_path
+
+## List of application. Add elements to the list
+application=(
+    "Alacritty"
+    "Bash"
+    "Ratpoison"
+    "Tmux"
+    "Xinit"
+    "Yazi"
+    "Zim"
+    "Zsh"
+)
+
+## key-value array of application with full paths. Add elements to the array
+application_path["Alacritty"]="~/.config/alacritty/alacritty.toml"
+application_path["Bash"]="~/.bashrc"
+application_path["Ratpoison"]="~/.ratpoisonrc"
+application_path["Tmux"]="~/.tmux.conf"
+application_path["Xinit"]="~/.xinitrc"
+application_path["Yazi"]="~/.config/yazi/yazi.toml"
+application_path["Zim"]="~/.zimrc"
+application_path["Zsh"]="~/.zshrc"
+
+# Convert array to newline-separated list and feed to dmenu
+selection=$(printf '%s\n' "${application[@]}" | dmenu -i -c -l 15 -p "Edit config")
+
+if [ -z "$selection" ]; then
+  # Empty variable
+    exit 1
+else
+   alacritty -e nano ${application_path["$selection"]} &
+fi
+
+## Print a specific element
+# echo "The application_path of Alacritty is ${application_path["Alacritty"]}"
+
+## Print all values
+# echo "All values: ${application_path[@]}"
+
+## Print all keys
+# echo "All Keys ${!application_path[@]}"

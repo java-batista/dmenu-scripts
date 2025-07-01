@@ -1,0 +1,14 @@
+#!/bin/sh
+
+#exemplo simples de como abrir arquivo. Pode ser modificado para outros programas
+#nano "$(find ~/scripts -type f | sort -n | xargs -r0 | dmenu -i -c -l 15 -p Open:)"
+
+# Exemplo melhorado
+choice="$(find ~/scripts -type f | sort -n | xargs -r0 | dmenu -i -c -l 15 -p Open:)"
+
+if [ -z "$choice" ]; then
+  # Empty variable
+    exit 1
+else
+   alacritty -e nano $choice
+fi

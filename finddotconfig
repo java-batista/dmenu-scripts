@@ -1,0 +1,18 @@
+#!/bin/bash
+
+# Collect top-level dotfiles in home (no directories, no recursion)
+home_dotfiles=$(find ~ -maxdepth 1 -type f -name ".*" 2>/dev/null)
+
+# Collect files in ~/.config/ (1 level deep -maxdepth 2)
+config_files=$(find ~/.config -type f 2>/dev/null)
+
+# Combine and show in dmenu
+selection=$(printf '%s\n' $home_dotfiles $config_files | dmenu -i -c -l 20 -p "Open config file:")
+
+# Open the selected file
+if [ -z "$selection" ]; then
+  # Empty variable
+    exit 1
+else
+   alacritty -e nano $selection &
+fi

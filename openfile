@@ -1,0 +1,15 @@
+#!/bin/sh
+
+#exemplo simples de como abrir arquivo. Pode ser modificado para outros programas
+#nano "$(find ~/scripts -type f | sort -n | xargs -r0 | dmenu -i -c -l 15 -p Open:)"
+
+# Exemplo melhorado
+choice="$(find ~/scripts -type f | sort -n | xargs -r0 | dmenu -i -c -l 15 -p Open:)"
+
+if [ -z "$choice" ]; then
+  # Empty variable
+    exit 1
+else
+   # Precisa do alacritty pois o nano não tem integração com X11. Outros programas podem abrir diretamente.
+   alacritty -e nano $choice
+fi

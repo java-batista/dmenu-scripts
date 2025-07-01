@@ -1,0 +1,13 @@
+#!/bin/sh
+
+# Get list of unmounted USB-connected block devices. Comando gerado no claude
+choice="$(lsblk -o NAME,SIZE,MOUNTPOINT,TRAN | awk '/usb/ {usb=1; next} usb && /└─|├─/ && !$3 {gsub(/[└├]─/, "", $1); print "/dev/"$1" ("$2")"}' | dmenu -i -p mount)"
+
+if [ -z "$choice" ]; then
+  # Empty variable
+    exit 1
+else
+    #udisksctl mount -b $choice
+    output=$(udisksctl mount -b $choice 2>&1 | sed 's/"/\\"/g')
+    ratpoison -c "echo \"$output\""
+fi
