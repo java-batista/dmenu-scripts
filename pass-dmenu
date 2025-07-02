@@ -12,7 +12,7 @@ set -euo pipefail
 
 # Configuration
 DMENU_CMD="${DMENU_CMD:-dmenu}"
-DMENU_ARGS="${DMENU_ARGS:--i -l 10}"
+DMENU_ARGS="${DMENU_ARGS:--i -c -l 15}"
 PASSWORD_STORE_DIR="${PASSWORD_STORE_DIR:-$HOME/.password-store}"
 
 # Colors and styling (customize these)
