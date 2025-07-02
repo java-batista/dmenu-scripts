@@ -271,7 +271,13 @@ main_browser() {
             if handle_content_selection "$selected_entry" "$selected_content" "$content"; then
                 # Ask if user wants to copy more from this entry
                 local continue_choice
-                continue_choice=$(echo -e "Copy more from this entry\nBack to password browser\nExit" | eval "$(get_dmenu_cmd "What next?")")
+
+		# TODO: A ideia era copiar o login e password sequencialmente. Mas como é dificil tirar o  foco do dmenu
+		#       não é possível copiar sequencialmente. Por isso sai aqui após fazer a primeira cópia.
+		#       Remova o exit 0 para teste ou se encontrar uma solução.
+		exit 0
+
+                continue_choice=$(echo -e "Exit\nCopy more from this entry\nBack to password browser" | eval "$(get_dmenu_cmd "What next?")")
 
                 case "$continue_choice" in
                     "Copy more from this entry")
