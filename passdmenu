@@ -1,0 +1,333 @@
+#!/usr/bin/env bash
+
+# pass-dmenu.bash - A pass browser using dmenu
+#
+# Installation:
+# 1. Save this file as ~/.local/bin/pass-dmenu or any location in your PATH
+# 2. Make it executable: chmod +x ~/.local/bin/pass-dmenu
+# 3. Usage: pass-dmenu
+# 4. Optional: Bind to a key combination in your window manager
+
+set -euo pipefail
+
+# Configuration
+DMENU_CMD="${DMENU_CMD:-dmenu}"
+DMENU_ARGS="${DMENU_ARGS:--i -l 10}"
+PASSWORD_STORE_DIR="${PASSWORD_STORE_DIR:-$HOME/.password-store}"
+
+# Colors and styling (customize these)
+DMENU_NB="${DMENU_NB:-#1e1e2e}"     # Normal background
+DMENU_NF="${DMENU_NF:-#cdd6f4}"     # Normal foreground
+DMENU_SB="${DMENU_SB:-#89b4fa}"     # Selected background
+DMENU_SF="${DMENU_SF:-#1e1e2e}"     # Selected foreground
+
+usage() {
+    cat <<-_EOF
+Usage:
+    $0 [OPTIONS]
+        Browse password store with dmenu
+
+    OPTIONS:
+        -h, --help      Show this help message
+        -v, --version   Show version information
+
+    ENVIRONMENT VARIABLES:
+        DMENU_CMD       Command to use for dmenu (default: dmenu)
+        DMENU_ARGS      Additional arguments for dmenu (default: -i -l 10)
+        DMENU_NB        Normal background color
+        DMENU_NF        Normal foreground color
+        DMENU_SB        Selected background color
+        DMENU_SF        Selected foreground color
+
+    EXAMPLES:
+        $0                          # Basic usage
+        DMENU_ARGS="-i -l 20" $0    # More lines
+        DMENU_CMD="rofi -dmenu" $0  # Use rofi instead
+_EOF
+}
+
+die() {
+    echo "Error: $*" >&2
+    exit 1
+}
+
+# Helper function to copy text to clipboard
+copy_to_clipboard() {
+    local text="$1"
+
+    if command -v xclip >/dev/null 2>&1; then
+        echo -n "$text" | xclip -selection clipboard
+    elif command -v wl-copy >/dev/null 2>&1; then
+        echo -n "$text" | wl-copy
+    elif command -v pbcopy >/dev/null 2>&1; then
+        echo -n "$text" | pbcopy
+    else
+        notify_user "Error: No clipboard utility found (xclip, wl-copy, or pbcopy required)"
+        return 1
+    fi
+}
+
+# Helper function for notifications
+notify_user() {
+    local message="$1"
+    local urgency="${2:-normal}"
+
+    if command -v notify-send >/dev/null 2>&1; then
+        notify-send -u "$urgency" "Pass Browser" "$message"
+    else
+        echo "$message" >&2
+    fi
+}
+
+# Get dmenu command with styling
+get_dmenu_cmd() {
+    local prompt="$1"
+    # echo "$DMENU_CMD $DMENU_ARGS -p \"$prompt\" -nb \"$DMENU_NB\" -nf \"$DMENU_NF\" -sb \"$DMENU_SB\" -sf \"$DMENU_SF\""
+    echo "$DMENU_CMD $DMENU_ARGS -p \"$prompt\""
+}
+
+# Get all password entries
+get_password_entries() {
+    local entries=()
+
+    if [[ ! -d "$PASSWORD_STORE_DIR" ]]; then
+        die "Password store directory not found: $PASSWORD_STORE_DIR"
+    fi
+
+    while IFS= read -r -d '' file; do
+        local entry="${file#$PASSWORD_STORE_DIR/}"
+        entry="${entry%.gpg}"
+        entries+=("$entry")
+    done < <(find "$PASSWORD_STORE_DIR" -name "*.gpg" -type f -print0 2>/dev/null)
+
+    printf '%s\n' "${entries[@]}"
+}
+
+# Test GPG authentication
+test_gpg_auth() {
+    local entries
+    mapfile -t entries < <(get_password_entries)
+
+    [[ ${#entries[@]} -eq 0 ]] && die "No passwords found in store"
+
+    echo "Testing GPG agent status..." >&2
+    local test_entry="${entries[0]}"
+
+    test_password="$PASSWORD_STORE_DIR/$test_entry.gpg"
+
+if ! gpg --pinentry-mode cancel  --decrypt "$test_password" >/dev/null 2>&1; then
+
+
+    alacritty -t "GPG Password Entry" -e bash -c "
+    echo 'Enter your GPG passphrase for password store access:'
+    echo 'Entry: $test_entry'
+    echo
+    export GPG_TTY=\$(tty)
+    export PINENTRY_USER_DATA='USE_CURSES=1'
+    if pass show '$test_entry' >/dev/null; then
+        #echo '✓ GPG agent authenticated successfully'
+        #echo 'You can now close this window and continue with dmenu.'
+        #read -p 'Press Enter to close...'
+        :
+    else
+        echo '✗ Authentication failed'
+        read -p 'Press Enter to close...'
+        exit 1
+    fi
+    " || die "Failed to authenticate with GPG"
+
+    # Verify authentication worked
+    if ! gpg --pinentry-mode cancel  --decrypt "$test_password" >/dev/null 2>&1; then
+        die "GPG authentication failed"
+    fi
+fi
+
+    echo "✓ GPG agent authenticated successfully" >&2
+}
+
+# Parse content and extract password/metadata
+parse_entry_content() {
+    local entry="$1"
+    local content
+
+    content=$(pass show "$entry" 2>/dev/null) || {
+        echo "Error: Could not decrypt $entry" >&2
+        return 1
+    }
+
+    echo "$content"
+}
+
+# Create content menu options
+create_content_menu() {
+    local entry="$1"
+    local content="$2"
+
+    local password_line metadata
+    password_line=$(echo "$content" | head -n1)
+    metadata=$(echo "$content" | tail -n +2)
+
+    # Add password option
+    echo " Password ([REDACTED] - ${#password_line} characters)"
+
+    # Add metadata lines
+    if [[ -n "$metadata" ]]; then
+        echo "$metadata" | while IFS= read -r line; do
+            [[ -n "$line" ]] && echo "$line"
+        done
+    fi
+}
+
+# Extract value from key:value format
+extract_value() {
+    local line="$1"
+
+    if [[ "$line" =~ ^([^:]+):[[:space:]]*(.+)$ ]]; then
+        echo "${BASH_REMATCH[2]}"
+    else
+        echo "$line"
+    fi
+}
+
+# Main content selection logic
+handle_content_selection() {
+    local entry="$1"
+    local selection="$2"
+    local content="$3"
+
+    if [[ "$selection" == *" Password"* ]]; then
+        # Copy password
+        local password
+        password=$(echo "$content" | head -n1)
+        if copy_to_clipboard "$password"; then
+            notify_user "✓ Password copied to clipboard"
+            return 0
+        else
+            notify_user "✗ Failed to copy password" "critical"
+            return 1
+        fi
+    else
+        # Copy metadata value
+        local copy_text
+        copy_text=$(extract_value "$selection")
+        if copy_to_clipboard "$copy_text"; then
+            notify_user "✓ Copied to clipboard: $copy_text"
+            return 0
+        else
+            notify_user "✗ Failed to copy to clipboard" "critical"
+            return 1
+        fi
+    fi
+}
+
+# Main browser loop
+main_browser() {
+    while true; do
+        # Get password entries
+        local entries
+        mapfile -t entries < <(get_password_entries)
+
+        [[ ${#entries[@]} -eq 0 ]] && die "No passwords found in store"
+
+        # Show password selection menu
+        local selected_entry
+        selected_entry=$(printf '%s\n' "${entries[@]}" | eval "$(get_dmenu_cmd " Password Store")")
+
+        [[ -z "$selected_entry" ]] && {
+            echo "No selection made - exiting" >&2
+            break
+        }
+
+        echo "Selected: $selected_entry" >&2
+
+        # Get entry content
+        local content
+        content=$(parse_entry_content "$selected_entry") || {
+            notify_user "Error: Could not decrypt $selected_entry" "critical"
+            continue
+        }
+
+        # Content selection loop
+        while true; do
+            # Create content menu
+            local content_options
+            content_options=$(create_content_menu "$selected_entry" "$content")
+
+            [[ -z "$content_options" ]] && {
+                notify_user "No content available for $selected_entry" "critical"
+                break
+            }
+
+            # Show content selection menu
+            local selected_content
+            selected_content=$(echo "$content_options" | eval "$(get_dmenu_cmd " Select content ($selected_entry)")")
+
+            [[ -z "$selected_content" ]] && {
+                echo "No content selected - returning to password browser" >&2
+                break
+            }
+
+            # Handle the selection
+            if handle_content_selection "$selected_entry" "$selected_content" "$content"; then
+                # Ask if user wants to copy more from this entry
+                local continue_choice
+                continue_choice=$(echo -e "Copy more from this entry\nBack to password browser\nExit" | eval "$(get_dmenu_cmd "What next?")")
+
+                case "$continue_choice" in
+                    "Copy more from this entry")
+                        continue
+                        ;;
+                    "Back to password browser")
+                        break
+                        ;;
+                    "Exit"|"")
+                        echo "Exiting..." >&2
+                        exit 0
+                        ;;
+                esac
+            else
+                # Copy failed, ask what to do
+                local error_choice
+                error_choice=$(echo -e "Try again\nBack to password browser\nExit" | eval "$(get_dmenu_cmd "Copy failed - what next?")")
+
+                case "$error_choice" in
+                    "Try again")
+                        continue
+                        ;;
+                    "Back to password browser")
+                        break
+                        ;;
+                    "Exit"|"")
+                        echo "Exiting..." >&2
+                        exit 0
+                        ;;
+                esac
+            fi
+        done
+    done
+}
+
+# Parse command line arguments
+case "${1:-}" in
+    -h|--help)
+        usage
+        exit 0
+        ;;
+    -v|--version)
+        echo "pass-dmenu 1.0.0"
+        exit 0
+        ;;
+    -*)
+        die "Unknown option: $1"
+        ;;
+esac
+
+# Check dependencies
+command -v pass >/dev/null 2>&1 || die "pass is not installed"
+command -v "$DMENU_CMD" >/dev/null 2>&1 || die "$DMENU_CMD is not installed"
+
+# Test GPG authentication before starting
+test_gpg_auth
+
+# Start the main browser
+main_browser
