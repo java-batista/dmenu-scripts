@@ -1,0 +1,40 @@
+#!/bin/sh
+
+PASSWORD_STORE_DIR="${PASSWORD_STORE_DIR:-$HOME/.password-store}"
+entry="email/pessoal/outlook"
+test_entry="$PASSWORD_STORE_DIR/$entry.gpg"
+
+die() {
+    echo "Error: $*" >&2
+    exit 1
+}
+
+if ! gpg --pinentry-mode cancel  --decrypt "$test_entry" >/dev/null 2>&1; then
+
+	alacritty -t "GPG Password Entry" -e bash -c "
+	    echo 'Enter your GPG passphrase for password store access:'
+	    echo 'Entry: $test_entry'
+	    echo
+	    export GPG_TTY=\$(tty)
+	    export PINENTRY_USER_DATA='USE_CURSES=1'
+	    if pass show '$entry' >/dev/null; then
+	        #echo '✓ GPG agent authenticated successfully'
+	        #echo 'You can now close this window and continue with dmenu.'
+	        #read -p 'Press Enter to close...'
+                :
+	    else
+	        echo '✗ Authentication failed'
+	        read -p 'Press Enter to close...'
+	        exit 1
+	    fi
+	    " || die "Failed to authenticate with GPG"
+
+	# Verify authentication worked
+        if ! gpg --pinentry-mode cancel  --decrypt "$test_entry" >/dev/null 2>&1; then
+            die "GPG authentication failed"
+        fi
+
+        echo "✓ GPG agent ready" >&2
+else
+     echo "Não precisa de senha"
+fi
